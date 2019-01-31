@@ -2,6 +2,7 @@ from binaryninja.binaryview import BinaryView
 from binaryninja.architecture import Architecture
 from binaryninja.enums import SegmentFlag
 from binaryninja.log import log_error
+from binaryninja.log import log_info
 
 import struct
 import traceback
@@ -51,6 +52,7 @@ class aoutView(BinaryView):
     def init_common(self):
         self.hdr = self.raw.read(0, 0x28)
         self.hdr_offset = 0x28
+        self.padding_size = 0x18
         self.entry_addr = struct.unpack(">L", self.hdr[0x14:0x18])[0]
         self.load_addr = struct.unpack(">L", self.hdr[0x24:0x28])[0]
         self.size = struct.unpack(">L", self.hdr[0x04:0x08])[0]         # text
@@ -68,14 +70,42 @@ class aoutView(BinaryView):
     def init_archthings(self):
         try:
             self.init_common()
-            self.add_auto_segment(self.load_addr, self.size, self.hdr_offset, self.size,
-                SegmentFlag.SegmentReadable | SegmentFlag.SegmentExecutable)
-            self.add_auto_segment(self.load_addr + self.size, self.data_size, self.hdr_offset, self.data_size, 
-                SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable)
-            self.add_auto_segment(self.load_addr + self.size + self.data_size, self.bss_size, self.hdr_offset,
-                self.bss_size, SegmentFlag.SegmentReadable | SegmentFlag.SegmentExecutable)
-            self.add_auto_segment(self.load_addr + self.size + self.data_size + self.bss_size, self.syms_size,
-                self.hdr_offset, self.syms_size, SegmentFlag.SegmentReadable | SegmentFlag.SegmentExecutable)
+            
+
+            # add_auto_segment(start, length, data_offset, data_length, flags)
+
+            # add .text segment for r-x
+            self.add_auto_segment(
+                self.load_addr,                                                     # start of segment
+                self.size,                                                          # length of segment
+                self.hdr_offset,                                                    # skip padding
+                self.size,                                                          # size again?
+                SegmentFlag.SegmentReadable | SegmentFlag.SegmentExecutable         # rwx bits
+            )
+
+            # padding from 0x3FEE - 0x4006 = 24 bytes or 0x18
+            # start_data = (end_text + 0x18)
+
+            # add .data segment for rw-
+            self.add_auto_segment(
+                self.load_addr + self.size,                                         # start of segment
+                self.data_size,                                                     # length of segment
+                self.padding_size,                                                  # skip padding
+                self.data_size,                                                     # size again?
+                SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
+            )
+
+            log_info('Looking at: {0:08x} for start of .data segment'.format(self.load_addr + self.size))
+
+
+            # add .bss segment for rw-
+            self.add_auto_segment(
+                self.load_addr + self.size + self.padding_size + self.data_size,    # start of segment
+                self.bss_size,                                                      # length of segment
+                0x0, #self.padding_size,                                                  # skip padding
+                self.bss_size,                                                      # size again?
+                SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
+            )
 
             '''
             Notes for future from binja console:
