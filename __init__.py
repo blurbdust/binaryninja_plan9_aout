@@ -1,6 +1,7 @@
 from binaryninja.binaryview import BinaryView
 from binaryninja.architecture import Architecture
 from binaryninja.enums import SegmentFlag
+from binaryninja.enums import SectionSemantics
 from binaryninja.log import log_error
 from binaryninja.log import log_info
 
@@ -71,49 +72,59 @@ class aoutView(BinaryView):
         try:
             self.init_common()
             
+            #   For example: bv.add_user_section("<section_name>", <section_start_address>, <section_size>, SectionSemantics.ReadOnlyCodeSectionSemantics)
+            self.add_user_section(".text", self.load_addr, self.size, SectionSemantics.ReadOnlyCodeSectionSemantics)
 
             # add_auto_segment(start, length, data_offset, data_length, flags)
-
             # add .text segment for r-x
             self.add_auto_segment(
                 self.load_addr,                                                     # start of segment
                 self.size,                                                          # length of segment
-                self.hdr_offset,                                                    # skip padding
+                self.hdr_offset,                                                    # offset into file
                 self.size,                                                          # size again?
+                SegmentFlag.SegmentContainsCode |                                   # Constains code
                 SegmentFlag.SegmentReadable | SegmentFlag.SegmentExecutable         # rwx bits
             )
 
             # padding from 0x3FEE - 0x4006 = 24 bytes or 0x18
             # start_data = (end_text + 0x18)
+            # ReadWriteDataSectionSemantics
 
+            self.add_user_section(".data", self.load_addr + self.size + self.padding_size, self.data_size, SectionSemantics.ReadWriteDataSectionSemantics)
             # add .data segment for rw-
             self.add_auto_segment(
                 self.load_addr + self.size,                                         # start of segment
                 self.data_size,                                                     # length of segment
-                self.padding_size,                                                  # skip padding
+                self.size,                                                          # offset into file
                 self.data_size,                                                     # size again?
+                SegmentFlag.SegmentContainsData |                                   # Contains data
                 SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
             )
 
-            log_info('Looking at: {0:08x} for start of .data segment'.format(self.load_addr + self.size))
+            #log_info('Looking at: {0:08x} for start of .data segment'.format(self.load_addr + self.size))
 
-
+            self.add_user_section(".bss", self.load_addr + self.size + self.padding_size + self.data_size, self.bss_size, SectionSemantics.ReadWriteDataSectionSemantics)
             # add .bss segment for rw-
             self.add_auto_segment(
                 self.load_addr + self.size + self.padding_size + self.data_size,    # start of segment
                 self.bss_size,                                                      # length of segment
-                0x0, #self.padding_size,                                                  # skip padding
+                self.size + self.padding_size + self.data_size,                     # offset into file
                 self.bss_size,                                                      # size again?
+                SegmentFlag.SegmentContainsData |                                   # Contains data
                 SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
             )
 
-            '''
-            Notes for future from binja console:
-            Analysis results may be improved by adding sections with ReadOnlyCodeSectionSemantics.
-            For example: bv.add_user_section("<section_name>", <section_start_address>, <section_size>, SectionSemantics.ReadOnlyCodeSectionSemantics)
-
-            '''
-
+            self.add_user_section(".syms", self.load_addr + self.size + self.padding_size + self.data_size + self.bss_size,
+                self.syms_size, SectionSemantics.ReadOnlyDataSectionSemantics)
+             # add .syms segment for r--
+            self.add_auto_segment(
+                self.load_addr + self.size + self.padding_size + self.data_size + self.bss_size,        # start of segment
+                self.syms_size,                                                                         # length of segment
+                self.size + self.padding_size + self.data_size + self.bss_size,                         # offset into file
+                self.syms_size,                                                                         # size again
+                SegmentFlag.SegmentContainsData |                                                       # Contains data
+                SegmentFlag.SegmentReadable # | SegmentFlag.SegmentWritable                             # rwx bits
+            )
 
             #arch = self.check_magic(self.hdr[0x0:0x4])
             if (arch != False):
