@@ -2,8 +2,10 @@ from binaryninja.binaryview import BinaryView
 from binaryninja.architecture import Architecture
 from binaryninja.enums import SegmentFlag
 from binaryninja.enums import SectionSemantics
+from binaryninja.enums import SymbolType
 from binaryninja.log import log_error
 from binaryninja.log import log_info
+from binaryninja.types import Symbol
 
 import struct
 import traceback
@@ -50,6 +52,7 @@ class aoutView(BinaryView):
         except:
             return "Not a valid a.out file"
 
+    #TODO: fix checking if plugin should load or not
     def init_common(self):
         self.hdr = self.raw.read(0, 0x28)
         self.hdr_offset = 0x28
@@ -74,6 +77,9 @@ class aoutView(BinaryView):
             
             #   For example: bv.add_user_section("<section_name>", <section_start_address>, <section_size>, SectionSemantics.ReadOnlyCodeSectionSemantics)
             self.add_user_section(".text", self.load_addr, self.size, SectionSemantics.ReadOnlyCodeSectionSemantics)
+
+            # register _main symbol
+            self.define_auto_symbol(Symbol(SymbolType.FunctionSymbol, self.entry_addr, "_main"))
 
             # add_auto_segment(start, length, data_offset, data_length, flags)
             # add .text segment for r-x
@@ -125,6 +131,25 @@ class aoutView(BinaryView):
                 SegmentFlag.SegmentContainsData |                                                       # Contains data
                 SegmentFlag.SegmentReadable # | SegmentFlag.SegmentWritable                             # rwx bits
             )
+
+
+            # skip to .syms section of binary
+            syms_start = self.size + self.padding_size + self.data_size + self.bss_size
+            # round syms_start to next % 16 for padding
+            #           header + round func
+            syms_start += 0x18
+            syms_start = (syms_start // 0x10) * 0x10
+            syms_start += 0x20
+
+            # for now, skip to _main
+            syms_start += 0x26D
+
+            log_info(hex(syms_start))
+            sysm_end = len(self.raw) - syms_start
+            syms = self.raw.read(syms_start, sysm_end)
+
+            #for i in range(0, )
+
 
             #arch = self.check_magic(self.hdr[0x0:0x4])
             if (arch != False):
