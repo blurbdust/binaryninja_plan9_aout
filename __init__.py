@@ -27,6 +27,15 @@ class aoutView(BinaryView):
             return False
         return True
 
+    def round(self, number, base, direction):
+        if (direction == "up"):
+            a = (number // base) * base
+            a += base
+        else:
+            a = (number // base) * base
+            a += base
+        return a
+
     def check_magic(self, magic_bytes):
         magic_dict = {
             b'\x00\x00\x01\xeb': "68020",
@@ -96,23 +105,53 @@ class aoutView(BinaryView):
             # start_data = (end_text + 0x18)
             # ReadWriteDataSectionSemantics
 
-            self.add_user_section(".data", self.load_addr + self.size + self.padding_size, self.data_size, SectionSemantics.ReadWriteDataSectionSemantics)
+            '''
+            When a Plan 9 binary file is executed, a memory image of
+            three segments is set up: the text segment, the data seg-
+            ment, and the stack.  The text segment begins at a virtual
+            address which is a multiple of the machine-dependent page
+            size.  The text segment consists of the header and the first
+            text bytes of the binary file.  The entry field gives the
+            virtual address of the entry point of the program.  The data
+            segment starts at the first page-rounded virtual address
+            after the text segment.  It consists of the next data bytes
+            of the binary file, followed by bss bytes initialized to
+            zero.  The stack occupies the highest possible locations in
+            the core image, automatically growing downwards.  The bss
+            segment may be extended by brk(2).
+            '''
+
+
+            # 0x400988 - 0x204a8a = data_segment_offset = 0x1fbefe
+            # round to next page, default smallest 4KB
+
+            #self.data_segment_offset = 0x400988 - 0x204a8a - 0x998
+
+            #log_info(hex(self.data_segment_offset))
+            
+            self.data_segment_offset = self.round(self.load_addr + self.size + self.padding_size, 0x200000, "up")
+
+            #log_info(hex(self.data_segment_offset))
+            
+            self.data_segment_offset -= 0x28 # header
+
+            self.add_user_section(".data", self.data_segment_offset, self.data_size, SectionSemantics.ReadWriteDataSectionSemantics)
             # add .data segment for rw-
             self.add_auto_segment(
-                self.load_addr + self.size,                                         # start of segment
+                self.data_segment_offset,                                           # virtual address of segment                        # start of segment
                 self.data_size,                                                     # length of segment
                 self.size,                                                          # offset into file
-                self.data_size,                                                     # size again?
+                self.data_size,                                                     # size of this segment
                 SegmentFlag.SegmentContainsData |                                   # Contains data
                 SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
             )
 
             #log_info('Looking at: {0:08x} for start of .data segment'.format(self.load_addr + self.size))
 
-            self.add_user_section(".bss", self.load_addr + self.size + self.padding_size + self.data_size, self.bss_size, SectionSemantics.ReadWriteDataSectionSemantics)
+            self.add_user_section(".bss", self.load_addr + self.size + self.padding_size + self.data_size + self.data_segment_offset, self.bss_size, SectionSemantics.ReadWriteDataSectionSemantics)
             # add .bss segment for rw-
-            self.add_auto_segment(
-                self.load_addr + self.size + self.padding_size + self.data_size,    # start of segment
+            self.add_auto_segment( 
+                self.data_size + self.data_segment_offset,                          # start of segment
                 self.bss_size,                                                      # length of segment
                 self.size + self.padding_size + self.data_size,                     # offset into file
                 self.bss_size,                                                      # size again?
@@ -120,11 +159,11 @@ class aoutView(BinaryView):
                 SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
             )
 
-            self.add_user_section(".syms", self.load_addr + self.size + self.padding_size + self.data_size + self.bss_size,
+            self.add_user_section(".syms", self.load_addr + self.size + self.padding_size + self.data_size + self.bss_size + self.data_segment_offset,
                 self.syms_size, SectionSemantics.ReadOnlyDataSectionSemantics)
              # add .syms segment for r--
             self.add_auto_segment(
-                self.load_addr + self.size + self.padding_size + self.data_size + self.bss_size,        # start of segment
+                self.data_size + self.bss_size + self.data_segment_offset,                          # start of segment
                 self.syms_size,                                                                         # length of segment
                 self.size + self.padding_size + self.data_size + self.bss_size,                         # offset into file
                 self.syms_size,                                                                         # size again
@@ -138,8 +177,7 @@ class aoutView(BinaryView):
             # round syms_start to next % 16 for padding
             #           header + round func
             syms_start += 0x18
-            syms_start = (syms_start // 0x10) * 0x10
-            syms_start += 0x20
+            syms_start = self.round(syms_start, 0x10, "up")
 
             # for now, skip to _main
             syms_start += 0x26D
