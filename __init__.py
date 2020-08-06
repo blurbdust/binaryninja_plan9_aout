@@ -59,7 +59,7 @@ class aoutView(BinaryView):
         try:
             return magic_dict[magic_bytes]
         except:
-            return "Not a valid a.out file"
+            return False
 
     #TODO: fix checking if plugin should load or not
     def init_common(self):
@@ -75,14 +75,18 @@ class aoutView(BinaryView):
         #log_error("size: " + str(hex(self.size)))
         arch = self.check_magic(self.hdr[0x0:0x4])
         if (arch != False):
-            self.platform = Architecture[arch].standalone_platform
+            self.platform = Architecture[arch].standalone_platform               
+            # this is super not how you do this so don't try it
+            #self.platform.system_call_convention = {'sysr1': 0, 'open': 14}
+            #log_info(str(self.platform.system_calls))
         else:
-            log_error("Not a valid a.out file!")
+            log_info("Not a valid a.out file!")
             return False
 
     def init_archthings(self):
         try:
-            self.init_common()
+            if self.init_common() == False:
+                return
             
             #   For example: bv.add_user_section("<section_name>", <section_start_address>, <section_size>, SectionSemantics.ReadOnlyCodeSectionSemantics)
             self.add_user_section(".text", self.load_addr, self.size, SectionSemantics.ReadOnlyCodeSectionSemantics)
@@ -146,6 +150,17 @@ class aoutView(BinaryView):
                 SegmentFlag.SegmentReadable | SegmentFlag.SegmentWritable           # rwx bits
             )
 
+            self.add_user_section(".rodata", self.data_segment_offset, self.data_size, SectionSemantics.ReadWriteDataSectionSemantics)
+            # add .rodata segment for r--
+            self.add_auto_segment(
+                self.data_segment_offset,                                           # virtual address of segment                        # start of segment
+                self.data_size,                                                     # length of segment
+                self.size,                                                          # offset into file
+                self.data_size,                                                     # size of this segment
+                SegmentFlag.SegmentContainsData |                                   # Contains data
+                SegmentFlag.SegmentReadable #| SegmentFlag.SegmentWritable           # rwx bits
+            )
+
             #log_info('Looking at: {0:08x} for start of .data segment'.format(self.load_addr + self.size))
 
             self.add_user_section(".bss", self.load_addr + self.size + self.padding_size + self.data_size + self.data_segment_offset, self.bss_size, SectionSemantics.ReadWriteDataSectionSemantics)
@@ -182,19 +197,16 @@ class aoutView(BinaryView):
             # for now, skip to _main
             syms_start += 0x26D
 
-            log_info(hex(syms_start))
+            #log_info(hex(syms_start))
             sysm_end = len(self.raw) - syms_start
             syms = self.raw.read(syms_start, sysm_end)
-
-            #for i in range(0, )
-
 
             #arch = self.check_magic(self.hdr[0x0:0x4])
             if (arch != False):
                 #self.add_entry_point(Architecture[arch].standalone_platform, self.entry_addr)
                 self.add_entry_point(self.entry_addr)
             else:
-                log_error("Not a valid a.out file!")
+                log_info("Not a valid a.out file!")
                 return False
             return True
         except:
