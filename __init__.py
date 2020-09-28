@@ -20,13 +20,6 @@ class aoutView(BinaryView):
         BinaryView.__init__(self, file_metadata = data.file, parent_view = data)
         self.raw = data
 
-    @classmethod
-    def is_valid_for_data(self, data):
-        hdr = data.read(0, 0x28)
-        if len(hdr) < 0x28:
-            return False
-        return True
-
     def round(self, number, base, direction):
         if (direction == "up"):
             a = (number // base) * base
@@ -61,7 +54,13 @@ class aoutView(BinaryView):
         except:
             return False
 
-    #TODO: fix checking if plugin should load or not
+    @classmethod
+    def is_valid_for_data(self, data):
+        hdr = data.read(0, 0x4)
+        if (self.check_magic(self, hdr) != False):
+            return True
+        return False
+
     def init_common(self):
         self.hdr = self.raw.read(0, 0x28)
         self.hdr_offset = 0x28
